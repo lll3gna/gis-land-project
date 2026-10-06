@@ -21,7 +21,7 @@ git clone https://github.com/lll3gna/gis-land-project.git
 cd gis-land-project
 python -m venv .venv
 source .venv/bin/activate
-# Windows: .venv\\Scripts\\activate
+# Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
 python cadastre/read_cadastre.py
 python imagery/process_imagery.py
@@ -30,7 +30,9 @@ pytest -q
 
 После запуска появятся нормализованный кадастровый JSON и датированные результаты снимка в `data/samples/`.
 
-## Источники данных\n\nСравнение НСПД, ЕГРН, API-агрегаторов, Esri, Яндекс, Google, Mapbox, Sentinel-2 и Геопортала Роскосмоса с рекомендацией для MVP: [docs/data-sources-comparison.md](docs/data-sources-comparison.md).\n\n## Переменные окружения
+## Источники данных
+
+Сравнение НСПД, ЕГРН, API-агрегаторов, Esri, Яндекс, Google, Mapbox, Sentinel-2 и Геопортала Роскосмоса с рекомендацией для MVP: [docs/data-sources-comparison.md](docs/data-sources-comparison.md).\n\n## Переменные окружения
 
 Кадастр:
 
