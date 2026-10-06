@@ -183,6 +183,9 @@ def process_geotiff(path: Path) -> tuple[np.ndarray, np.ndarray, Affine, str, di
         rgb = np.stack(
             [percentile_normalize(data[i], valid) for i in range(len(bands))]
         )
+        # Keep the downstream segmentation contract RGB even for grayscale TIFF.
+        if rgb.shape[0] == 1:
+            rgb = np.repeat(rgb, 3, axis=0)
         rgb, valid, transform = resize_array_and_transform(rgb, valid, transform)
         manifest = {
             "source_crs": str(src.crs),
