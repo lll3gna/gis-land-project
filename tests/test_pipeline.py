@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 
 import numpy as np
+import pytest
 import rasterio
 
 from cadastre.read_cadastre import read_cadastre
@@ -29,7 +30,7 @@ def test_geotiff_keeps_spatial_contract():
     assert rgb.shape[0] == 3
     assert rgb.dtype == np.uint8
     assert valid.any()
-    assert crs == "EPSG:6933"
+    assert crs == "EPSG:32637"
     assert transform.a > 0
     assert transform.e < 0
     assert manifest["bands"] == [1, 2, 3]
@@ -63,9 +64,9 @@ def test_save_outputs_writes_segmentation_contract(tmp_path, monkeypatch):
     monkeypatch.setattr(imagery, "OUTPUT_MANIFEST", tmp_path / "2026-10-06_vok104_cadastre.json")
 
     transform = imagery.Affine(2, 0, 100, 0, -2, 200)
-    imagery.save_outputs(rgb, valid, transform, "EPSG:6933", {
+    imagery.save_outputs(rgb, valid, transform, "EPSG:32637", {
         "source_crs": "EPSG:32637",
-        "working_crs": "EPSG:6933",
+        "working_crs": "EPSG:32637",
         "exchange_crs": "EPSG:4326",
         "bands": [1, 2, 3],
         "normalization": {"method": "percentile_clip", "low": 2, "high": 98},
@@ -79,7 +80,7 @@ def test_save_outputs_writes_segmentation_contract(tmp_path, monkeypatch):
     manifest = json.loads((tmp_path / "2026-10-06_vok104_cadastre.json").read_text(encoding="utf-8"))
     assert manifest["schema_version"] == "1.0"
     assert manifest["georeferenced"] is True
-    assert manifest["crs"] == "EPSG:6933"
+    assert manifest["crs"] == "EPSG:32637"
     assert manifest["geotiff"] == "2026-10-06_vok104_cadastre.tif"
     assert manifest["nodata_mask"] == "2026-10-06_vok104_cadastre_nodata_mask.png"
 
@@ -87,5 +88,27 @@ def test_save_outputs_writes_segmentation_contract(tmp_path, monkeypatch):
         assert src.count == 3
         assert src.dtypes == ("uint8", "uint8", "uint8")
         assert src.nodata == 0
-        assert src.crs.to_string() == "EPSG:6933"
+        assert src.crs.to_string() == "EPSG:32637"
         assert src.transform == transform
+
+    
+def test_percentile_normalization_flat_band_is_grey_not_black():
+    values = np.full((50, 50), 7.0, dtype=np.float32)
+    valid = np.ones_like(values, dtype=bool)
+    normalized = percentile_normalize(values, valid)
+    assert (normalized == 128).all()
+
+
+def test_percentile_normalization_regular_band_uses_full_range():
+    values = np.tile(np.arange(100, dtype=np.float32), (10, 1))
+    valid = np.ones_like(values, dtype=bool)
+    normalized = percentile_normalize(values, valid)
+    assert normalized.min() == 0
+    assert normalized.max() == 255
+
+
+def test_working_crs_keeps_image_shape():
+    rgb, valid, transform, crs, manifest = process_geotiff(SAMPLE_IMAGERY)
+    with rasterio.open(SAMPLE_IMAGERY) as src:
+        assert rgb.shape[1:] == (src.height, src.width)
+    assert abs(transform.a) == pytest.approx(abs(transform.e))
