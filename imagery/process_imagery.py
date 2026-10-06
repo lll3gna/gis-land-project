@@ -28,7 +28,10 @@ from rasterio.warp import calculate_default_transform, reproject
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT_PATH = PROJECT_ROOT / "data" / "samples" / "vok104_imagery.tif"
 INPUT_PATH = Path(os.getenv("IMAGERY_INPUT_PATH", str(DEFAULT_INPUT_PATH)))
-# Working CRS must be conformal for segmentation and DXF export.\n# UTM 37N covers 36°E–42°E, including VOK-104 (~37.6°E).\n# EPSG:6933 is equal-area and is reserved for cadastral area checks.\nTARGET_CRS = os.getenv("IMAGERY_WORKING_CRS", "EPSG:32637")
+# Working CRS must be conformal for segmentation and DXF export.
+# UTM 37N covers 36°E–42°E, including VOK-104 (~37.6°E).
+# EPSG:6933 is equal-area and is reserved for cadastral area checks.
+TARGET_CRS = os.getenv("IMAGERY_WORKING_CRS", "EPSG:32637")
 EXCHANGE_CRS = "EPSG:4326"
 MAX_IMAGE_SIZE = int(os.getenv("IMAGERY_MAX_SIZE", "2048"))
 LOW_PERCENTILE = float(os.getenv("IMAGERY_LOW_PERCENTILE", "2"))

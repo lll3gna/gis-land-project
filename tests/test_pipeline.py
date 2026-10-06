@@ -91,7 +91,7 @@ def test_save_outputs_writes_segmentation_contract(tmp_path, monkeypatch):
         assert src.crs.to_string() == "EPSG:32637"
         assert src.transform == transform
 
-    
+
 def test_percentile_normalization_flat_band_is_grey_not_black():
     values = np.full((50, 50), 7.0, dtype=np.float32)
     valid = np.ones_like(values, dtype=bool)
