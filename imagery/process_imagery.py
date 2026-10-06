@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from PIL import Image
+from rasterio.crs import CRS
 from rasterio.enums import ColorInterp, Resampling
 from rasterio.transform import Affine
 from rasterio.warp import calculate_default_transform, reproject
@@ -36,7 +37,10 @@ EXCHANGE_CRS = "EPSG:4326"
 MAX_IMAGE_SIZE = int(os.getenv("IMAGERY_MAX_SIZE", "2048"))
 LOW_PERCENTILE = float(os.getenv("IMAGERY_LOW_PERCENTILE", "2"))
 HIGH_PERCENTILE = float(os.getenv("IMAGERY_HIGH_PERCENTILE", "98"))
-IMAGE_DATE = os.getenv("IMAGERY_DATE", date.today().isoformat())
+# Date in output names should be the capture date. If IMAGERY_DATE is not
+# set, the processing date is used and the manifest says so explicitly.
+IMAGE_DATE = os.getenv("IMAGERY_DATE") or date.today().isoformat()
+IMAGE_DATE_SOURCE = "capture" if os.getenv("IMAGERY_DATE") else "processing"
 BAND_MAPPING = os.getenv("IMAGERY_BANDS")
 DEFAULT_STEM = f"{IMAGE_DATE}_vok104_cadastre"
 OUTPUT_DIR = Path(os.getenv("IMAGERY_OUTPUT_DIR", str(PROJECT_ROOT / "data" / "samples")))
@@ -263,6 +267,10 @@ def save_outputs(
             dst.write(rgb)
             dst.colorinterp = (ColorInterp.red, ColorInterp.green, ColorInterp.blue)
         write_world_file(OUTPUT_PNG.with_suffix(".pgw"), transform)
+        # .pgw has no CRS; a .prj sidecar lets GIS tools open the PNG correctly.
+        OUTPUT_PNG.with_suffix(".prj").write_text(
+            CRS.from_user_input(crs).to_wkt(), encoding="utf-8"
+        )
         manifest["georeferenced"] = True
         manifest["transform"] = list(transform)
         manifest["crs"] = crs
@@ -274,6 +282,8 @@ def save_outputs(
     manifest.update({
         "schema_version": "1.0",
         "png": OUTPUT_PNG.name,
+        "image_date": IMAGE_DATE,
+        "image_date_source": IMAGE_DATE_SOURCE,
         "geotiff": OUTPUT_TIFF.name if transform is not None else None,
         "nodata_mask": OUTPUT_MASK.name,
         "width": int(rgb.shape[2]),
@@ -288,6 +298,8 @@ def save_outputs(
 def process_imagery(input_path: Path = INPUT_PATH) -> None:
     validate_input_file(input_path)
     log(f"Вход: {input_path}")
+    if IMAGE_DATE_SOURCE == "processing":
+        log("IMAGERY_DATE не задана: в имени файла дата обработки, а не съёмки.")
 
     if input_path.suffix.lower() in {".tif", ".tiff"}:
         rgb, valid, transform, crs, manifest = process_geotiff(input_path)

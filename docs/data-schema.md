@@ -39,13 +39,15 @@
 - 3 uint8 RGB-канала;
 - nodata = 0.
 
-PNG предназначен для сегментации. Его геопривязка дублируется в `.pgw` и manifest JSON.
+PNG предназначен для сегментации. Его геопривязка дублируется в `.pgw` (transform), `.prj` (CRS) и manifest JSON.
 
 Формат имени:
 
 `YYYY-MM-DD_vok104_cadastre.png`
 
 Для GeoTIFF используется тот же stem с расширением `.tif`.
+
+`YYYY-MM-DD` — дата съёмки из `IMAGERY_DATE`. Если она не задана, используется дата обработки; manifest хранит `image_date` и `image_date_source` (`capture` или `processing`).
 
 ## 3. Manifest снимка
 

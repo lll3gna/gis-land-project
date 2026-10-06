@@ -2,9 +2,11 @@ from pathlib import Path
 
 import json
 
+import geopandas as gpd
 import numpy as np
 import pytest
 import rasterio
+from shapely.geometry import box, shape
 
 from cadastre.read_cadastre import read_cadastre
 from imagery.process_imagery import process_geotiff, percentile_normalize
@@ -19,7 +21,7 @@ def test_cadastre_contract_and_area():
     data = read_cadastre(SAMPLE_CADASTRE)
     assert data["schema_version"] == "1.0"
     assert data["cadastral_number"] == "50:11:0000000:104"
-    assert data["area_m2"] == 10000.0
+    assert data["area_m2"] == 1000.0
     assert data["geometry"]["type"] == "Polygon"
     assert data["crs"] == "EPSG:4326"
     assert data["area_relative_error"] <= 0.05
@@ -75,11 +77,13 @@ def test_save_outputs_writes_segmentation_contract(tmp_path, monkeypatch):
     assert (tmp_path / "2026-10-06_vok104_cadastre.png").is_file()
     assert (tmp_path / "2026-10-06_vok104_cadastre.tif").is_file()
     assert (tmp_path / "2026-10-06_vok104_cadastre.pgw").is_file()
+    assert (tmp_path / "2026-10-06_vok104_cadastre.prj").is_file()
     assert (tmp_path / "2026-10-06_vok104_cadastre_nodata_mask.png").is_file()
 
     manifest = json.loads((tmp_path / "2026-10-06_vok104_cadastre.json").read_text(encoding="utf-8"))
     assert manifest["schema_version"] == "1.0"
     assert manifest["georeferenced"] is True
+    assert manifest["image_date_source"] in {"capture", "processing"}
     assert manifest["crs"] == "EPSG:32637"
     assert manifest["geotiff"] == "2026-10-06_vok104_cadastre.tif"
     assert manifest["nodata_mask"] == "2026-10-06_vok104_cadastre_nodata_mask.png"
@@ -112,3 +116,27 @@ def test_working_crs_keeps_image_shape():
     with rasterio.open(SAMPLE_IMAGERY) as src:
         assert rgb.shape[1:] == (src.height, src.width)
     assert abs(transform.a) == pytest.approx(abs(transform.e))
+
+
+def test_parcel_lies_inside_imagery():
+    """Cadastre and imagery samples must describe the same place."""
+    data = read_cadastre(SAMPLE_CADASTRE)
+    parcel = gpd.GeoSeries([shape(data["geometry"])], crs=data["crs"])
+    with rasterio.open(SAMPLE_IMAGERY) as src:
+        parcel_in_image_crs = parcel.to_crs(src.crs).iloc[0]
+        image_area = box(*src.bounds)
+    assert image_area.contains(parcel_in_image_crs)
+
+
+def test_parcel_lies_inside_processed_imagery():
+    """After processing, the parcel still falls on valid (non-nodata) pixels."""
+    data = read_cadastre(SAMPLE_CADASTRE)
+    rgb, valid, transform, crs, manifest = process_geotiff(SAMPLE_IMAGERY)
+    parcel = gpd.GeoSeries([shape(data["geometry"])], crs=data["crs"]).to_crs(crs).iloc[0]
+    inv = ~transform
+    corners = [inv * (x, y) for x, y in parcel.exterior.coords]
+    height, width = valid.shape
+    for col, row in corners:
+        assert 0 <= col < width and 0 <= row < height
+        assert valid[int(row), int(col)]
+

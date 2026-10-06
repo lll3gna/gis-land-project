@@ -225,5 +225,6 @@ data/samples/vok104_cadastre.json
 data/samples/*_vok104_cadastre.png
 data/samples/*_vok104_cadastre.tif
 data/samples/*_vok104_cadastre.pgw
+data/samples/*_vok104_cadastre.prj
 data/samples/*_vok104_cadastre.json
 data/samples/*_vok104_cadastre_nodata_mask.png
