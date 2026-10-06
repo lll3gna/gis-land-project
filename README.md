@@ -25,21 +25,23 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 python cadastre/read_cadastre.py
 python imagery/process_imagery.py
-pytest -q
+python -m pytest -q
 ```
 
 После запуска появятся нормализованный кадастровый JSON и датированные результаты снимка в `data/samples/`.
 
 ## Источники данных
 
-Сравнение НСПД, ЕГРН, API-агрегаторов, Esri, Яндекс, Google, Mapbox, Sentinel-2 и Геопортала Роскосмоса с рекомендацией для MVP: [docs/data-sources-comparison.md](docs/data-sources-comparison.md).\n\n## Переменные окружения
+Сравнение НСПД, ЕГРН, API-агрегаторов, Esri, Яндекс, Google, Mapbox, Sentinel-2 и Геопортала Роскосмоса с рекомендацией для MVP: [docs/data-sources-comparison.md](docs/data-sources-comparison.md).
+
+## Переменные окружения
 
 Кадастр:
 
 - `CADASTRE_INPUT_PATH`
 - `CADASTRE_OUTPUT_PATH`
 - `CADASTRAL_NUMBER` — нужен только если входной файл содержит несколько объектов.
-- `CADASTRE_AREA_CRS` — CRS для метрической проверки площади, по умолчанию EPSG:6933.
+- `CADASTRE_AREA_CRS` — равновеликая CRS для проверки площади, по умолчанию EPSG:6933 (сохраняет площади, но искажает форму, поэтому используется только для площади).
 - `CADASTRE_AREA_TOLERANCE` — относительная допустимая ошибка, по умолчанию 5%.
 
 Снимок:
@@ -47,7 +49,7 @@ pytest -q
 - `IMAGERY_INPUT_PATH`
 - `IMAGERY_OUTPUT_DIR`
 - `IMAGERY_DATE` — дата в имени результата YYYY-MM-DD.
-- `IMAGERY_WORKING_CRS` — метрическая CRS, по умолчанию EPSG:6933; для производственного проекта можно задать локальную МСК/UTM.
+- `IMAGERY_WORKING_CRS` — метрическая равноугольная CRS для снимка, по умолчанию EPSG:32637 (WGS 84 / UTM 37N, покрывает 36–42° в.д.). Для участков вне этой зоны задайте свою UTM-зону или местную МСК.
 - `IMAGERY_BANDS` — явное соответствие R,G,B, например `3,2,1`; если не задано, используются теги ColorInterp GeoTIFF.
 - `IMAGERY_LOW_PERCENTILE`, `IMAGERY_HIGH_PERCENTILE` — по умолчанию 2 и 98.
 - `IMAGERY_MAX_SIZE` — максимальная сторона PNG, по умолчанию 2048.
