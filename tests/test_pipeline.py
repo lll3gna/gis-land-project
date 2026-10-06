@@ -46,3 +46,46 @@ def test_percentile_normalization_ignores_extreme_outlier():
     normalized = percentile_normalize(values, valid)
     assert normalized[50, 50] > 0
     assert normalized[0, 0] == 255
+
+
+def test_save_outputs_writes_segmentation_contract(tmp_path, monkeypatch):
+    import imagery.process_imagery as imagery
+
+    rgb = np.zeros((3, 8, 10), dtype=np.uint8)
+    rgb[:, 2:6, 3:8] = 120
+    valid = np.zeros((8, 10), dtype=bool)
+    valid[2:6, 3:8] = True
+
+    monkeypatch.setattr(imagery, "OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(imagery, "OUTPUT_PNG", tmp_path / "2026-10-06_vok104_cadastre.png")
+    monkeypatch.setattr(imagery, "OUTPUT_TIFF", tmp_path / "2026-10-06_vok104_cadastre.tif")
+    monkeypatch.setattr(imagery, "OUTPUT_MASK", tmp_path / "2026-10-06_vok104_cadastre_nodata_mask.png")
+    monkeypatch.setattr(imagery, "OUTPUT_MANIFEST", tmp_path / "2026-10-06_vok104_cadastre.json")
+
+    transform = imagery.Affine(2, 0, 100, 0, -2, 200)
+    imagery.save_outputs(rgb, valid, transform, "EPSG:6933", {
+        "source_crs": "EPSG:32637",
+        "working_crs": "EPSG:6933",
+        "exchange_crs": "EPSG:4326",
+        "bands": [1, 2, 3],
+        "normalization": {"method": "percentile_clip", "low": 2, "high": 98},
+    })
+
+    assert (tmp_path / "2026-10-06_vok104_cadastre.png").is_file()
+    assert (tmp_path / "2026-10-06_vok104_cadastre.tif").is_file()
+    assert (tmp_path / "2026-10-06_vok104_cadastre.pgw").is_file()
+    assert (tmp_path / "2026-10-06_vok104_cadastre_nodata_mask.png").is_file()
+
+    manifest = json.loads((tmp_path / "2026-10-06_vok104_cadastre.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "1.0"
+    assert manifest["georeferenced"] is True
+    assert manifest["crs"] == "EPSG:6933"
+    assert manifest["geotiff"] == "2026-10-06_vok104_cadastre.tif"
+    assert manifest["nodata_mask"] == "2026-10-06_vok104_cadastre_nodata_mask.png"
+
+    with rasterio.open(tmp_path / "2026-10-06_vok104_cadastre.tif") as src:
+        assert src.count == 3
+        assert src.dtypes == ("uint8", "uint8", "uint8")
+        assert src.nodata == 0
+        assert src.crs.to_string() == "EPSG:6933"
+        assert src.transform == transform
