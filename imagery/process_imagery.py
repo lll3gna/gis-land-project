@@ -28,7 +28,7 @@ from rasterio.warp import calculate_default_transform, reproject
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT_PATH = PROJECT_ROOT / "data" / "samples" / "vok104_imagery.tif"
 INPUT_PATH = Path(os.getenv("IMAGERY_INPUT_PATH", str(DEFAULT_INPUT_PATH)))
-TARGET_CRS = os.getenv("IMAGERY_WORKING_CRS", "EPSG:6933")
+# Working CRS must be conformal for segmentation and DXF export.\n# UTM 37N covers 36°E–42°E, including VOK-104 (~37.6°E).\n# EPSG:6933 is equal-area and is reserved for cadastral area checks.\nTARGET_CRS = os.getenv("IMAGERY_WORKING_CRS", "EPSG:32637")
 EXCHANGE_CRS = "EPSG:4326"
 MAX_IMAGE_SIZE = int(os.getenv("IMAGERY_MAX_SIZE", "2048"))
 LOW_PERCENTILE = float(os.getenv("IMAGERY_LOW_PERCENTILE", "2"))
@@ -89,7 +89,13 @@ def percentile_normalize(values: np.ndarray, valid: np.ndarray) -> np.ndarray:
     sample = values[finite].astype(np.float32)
     lo, hi = np.percentile(sample, [LOW_PERCENTILE, HIGH_PERCENTILE])
     if hi <= lo:
-        result[finite] = 0
+        # Degenerate band: the percentile window collapses. Keep the bulk
+        # value as neutral grey instead of black and separate outliers.
+        v = values.astype(np.float32)
+        degenerate = np.full(values.shape, 128, dtype=np.uint8)
+        degenerate[v > hi] = 255
+        degenerate[v < lo] = 0
+        result[finite] = degenerate[finite]
         return result
 
     scaled = (values.astype(np.float32) - lo) / (hi - lo) * 255.0
