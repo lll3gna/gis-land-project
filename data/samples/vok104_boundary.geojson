@@ -1,0 +1,34 @@
+{
+  "type": "FeatureCollection",
+  "name": "vok104_boundary_synthetic",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "cadastral_number": "50:11:0000000:104",
+        "area_m2": 10000.0,
+        "area_unit": "m2",
+        "land_category": "земли населённых пунктов",
+        "permitted_use": "для размещения объектов жилой застройки"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [37.6, 55.75],
+            [37.61, 55.75],
+            [37.61, 55.76],
+            [37.6, 55.76],
+            [37.6, 55.75]
+          ]
+        ]
+      }
+    }
+  ],
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  }
+}
