@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
-"""
-cadastre/read_cadastre.py
+"""Read, validate and normalize the VOK-104 cadastral parcel.
 
-Загрузка и нормализация кадастровых границ участка VOK-104.
-
-Источник:
-    data/samples/vok104_boundary.geojson
-
-Результат:
-    - кадастровый номер;
-    - площадь участка;
-    - геометрия Polygon / MultiPolygon;
-    - геометрия в WGS 84 (EPSG:4326).
-
-Зависимости:
-    geopandas
-    shapely
+The module returns a stable project contract and can persist it as JSON.
+Exchange CRS is WGS 84 (EPSG:4326); metric area checks use EPSG:6933 unless
+overridden with CADASTRE_AREA_CRS.
 """
 
 from __future__ import annotations
@@ -27,133 +15,57 @@ from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
 from shapely.geometry.base import BaseGeometry
+from shapely.validation import make_valid
 
-
-# ---------------------------------------------------------------------------
-# Пути
-# ---------------------------------------------------------------------------
-
-# По умолчанию ожидаем стандартную структуру проекта:
-# project/
-# ├── cadastre/
-# │   └── read_cadastre.py
-# ├── data/
-# │   └── samples/
-# │       └── vok104_boundary.geojson
-# └── docs/
-#     └── data-schema.md
-#
-# При необходимости путь можно переопределить через переменную окружения.
-DEFAULT_INPUT_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "data"
-    / "samples"
-    / "vok104_boundary.geojson"
-)
-
-INPUT_PATH = Path(
-    os.getenv("CADASTRE_INPUT_PATH", str(DEFAULT_INPUT_PATH))
-)
-
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_INPUT_PATH = PROJECT_ROOT / "data" / "samples" / "vok104_boundary.geojson"
+DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data" / "samples" / "vok104_cadastre.json"
 TARGET_CRS = "EPSG:4326"
+AREA_CRS = os.getenv("CADASTRE_AREA_CRS", "EPSG:6933")
+CADASTRAL_NUMBER = os.getenv("CADASTRAL_NUMBER")
+INPUT_PATH = Path(os.getenv("CADASTRE_INPUT_PATH", str(DEFAULT_INPUT_PATH)))
+OUTPUT_PATH = Path(os.getenv("CADASTRE_OUTPUT_PATH", str(DEFAULT_OUTPUT_PATH)))
+AREA_TOLERANCE = float(os.getenv("CADASTRE_AREA_TOLERANCE", "0.05"))
 
 
-# ---------------------------------------------------------------------------
-# Вспомогательные функции
-# ---------------------------------------------------------------------------
-
-def find_attribute(
-    row: Any,
-    possible_names: tuple[str, ...],
-) -> Any:
-    """
-    Находит значение атрибута по списку допустимых названий.
-
-    Это позволяет работать с GeoJSON, где одно и то же поле может называться,
-    например, cadastral_number, cad_num или кадастровый_номер.
-    """
-
-    # Сначала проверяем точное совпадение имени.
-    for name in possible_names:
-        if name in row.index:
-            value = row[name]
-
-            if value is not None:
-                try:
-                    if not (value != value):  # NaN
-                        return value
-                except Exception:
-                    return value
-
-    # Затем проверяем регистр независимо.
-    normalized = {
-        str(column).strip().lower(): column
-        for column in row.index
-    }
-
-    for name in possible_names:
-        actual_name = normalized.get(name.lower())
-
-        if actual_name is not None:
-            value = row[actual_name]
-
-            if value is not None:
-                try:
-                    if not (value != value):
-                        return value
-                except Exception:
-                    return value
-
+def find_attribute(row: Any, names: tuple[str, ...]) -> Any:
+    """Find a non-empty attribute using exact and case-insensitive aliases."""
+    columns = {str(c).strip().lower(): c for c in row.index}
+    for name in names:
+        actual = name if name in row.index else columns.get(name.lower())
+        if actual is None:
+            continue
+        value = row[actual]
+        if value is None:
+            continue
+        try:
+            if value != value:
+                continue
+        except Exception:
+            pass
+        if str(value).strip():
+            return value
     return None
 
 
-def normalize_geometry(
-    geometry: BaseGeometry,
-) -> Polygon | MultiPolygon:
-    """
-    Проверяет и нормализует геометрию участка.
-
-    На выходе допустимы только:
-        Polygon
-        MultiPolygon
-
-    Для последующей передачи в модуль сегментации.
-    """
-
+def normalize_geometry(geometry: BaseGeometry) -> Polygon | MultiPolygon:
+    """Repair a geometry and return only Polygon/MultiPolygon."""
     if geometry is None or geometry.is_empty:
         raise ValueError("Геометрия участка отсутствует или пустая.")
 
-    # Если геометрия повреждена, пытаемся исправить её.
     if not geometry.is_valid:
-        geometry = geometry.buffer(0)
-
-    if geometry.is_empty or not geometry.is_valid:
-        raise ValueError(
-            "Не удалось исправить поврежденную геометрию участка."
-        )
+        geometry = make_valid(geometry)
 
     if isinstance(geometry, Polygon):
         return geometry
-
     if isinstance(geometry, MultiPolygon):
         return geometry
-
-    # Некоторые источники могут отдавать GeometryCollection.
-    # Из него извлекаем только Polygon-компоненты.
-    if geometry.geom_type == "GeometryCollection":
-        polygons = [
-            geom
-            for geom in geometry.geoms
-            if isinstance(geom, Polygon)
-        ]
-
+    if isinstance(geometry, GeometryCollection):
+        polygons = [g for g in geometry.geoms if isinstance(g, Polygon)]
         if not polygons:
-            raise ValueError(
-                "GeometryCollection не содержит Polygon."
-            )
-
+            raise ValueError("GeometryCollection не содержит Polygon.")
         return MultiPolygon(polygons)
 
     raise ValueError(
@@ -162,255 +74,172 @@ def normalize_geometry(
     )
 
 
-def geometry_to_geojson(
-    geometry: Polygon | MultiPolygon,
-) -> dict[str, Any]:
-    """
-    Преобразует Shapely Polygon/MultiPolygon в GeoJSON geometry.
-    """
+def parse_area_m2(row: Any) -> float:
+    """Read area and convert supported units to square metres."""
+    value = find_attribute(
+        row,
+        ("area_m2", "area_sq_m", "areaSqM", "площадь_м2", "площадь_м²"),
+    )
+    unit = find_attribute(row, ("area_unit", "area_units", "единица_площади"))
 
-    return json.loads(
-        gpd.GeoSeries([geometry], crs=TARGET_CRS)
-        .to_json()
-    )["features"][0]["geometry"]
+    if value is None:
+        value = find_attribute(row, ("area", "square", "площадь"))
+        if value is not None and unit is None:
+            raise ValueError(
+                "Найдено поле area/площадь без area_unit. "
+                "Укажите единицы явно или используйте area_m2."
+            )
 
+    if value is None:
+        raise ValueError("Не найдена площадь участка.")
 
-# ---------------------------------------------------------------------------
-# Основная функция
-# ---------------------------------------------------------------------------
+    try:
+        area = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Некорректное значение площади: {value!r}") from exc
 
-def read_cadastre(
-    input_path: Path = INPUT_PATH,
-) -> dict[str, Any]:
-    """
-    Загружает кадастровый участок и приводит его к единой структуре данных.
-
-    Возвращает:
-
-    {
-        "cadastral_number": "...",
-        "area_m2": 1234.56,
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [...]
-        },
-        "crs": "EPSG:4326"
+    unit = (str(unit).strip().lower() if unit is not None else "m2")
+    factors = {
+        "m2": 1.0, "м2": 1.0, "м²": 1.0, "sqm": 1.0,
+        "ha": 10000.0, "га": 10000.0,
     }
-    """
+    if unit not in factors:
+        raise ValueError(f"Неподдерживаемая единица площади: {unit!r}")
+    area_m2 = area * factors[unit]
+    if area_m2 < 0:
+        raise ValueError("Площадь участка не может быть отрицательной.")
+    return area_m2
 
-    # -----------------------------------------------------------------------
-    # 1. Проверяем наличие файла
-    # -----------------------------------------------------------------------
 
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"Файл кадастровых данных не найден: {input_path}"
+def select_feature(gdf: gpd.GeoDataFrame) -> Any:
+    """Select exactly one feature, optionally by cadastral number."""
+    if len(gdf) == 1:
+        return gdf.iloc[0]
+
+    if not CADASTRAL_NUMBER:
+        raise ValueError(
+            f"Файл содержит {len(gdf)} объектов. "
+            "Задайте CADASTRAL_NUMBER для однозначного выбора участка."
         )
 
+    candidates = []
+    aliases = (
+        "cadastral_number", "cadastralNumber", "cad_num", "cadnum",
+        "cadastral_id", "cadastralId", "кадастровый_номер", "кадастровый номер",
+    )
+    for _, row in gdf.iterrows():
+        value = find_attribute(row, aliases)
+        if value is not None and str(value).strip() == CADASTRAL_NUMBER:
+            candidates.append(row)
+
+    if len(candidates) != 1:
+        raise ValueError(
+            f"По CADASTRAL_NUMBER={CADASTRAL_NUMBER!r} найдено "
+            f"{len(candidates)} объектов, ожидался ровно один."
+        )
+    return candidates[0]
+
+
+def read_cadastre(input_path: Path = INPUT_PATH) -> dict[str, Any]:
+    """Load the parcel and return the documented VOK-104 contract."""
     if not input_path.is_file():
-        raise FileNotFoundError(
-            f"Указанный путь не является файлом: {input_path}"
-        )
-
-    # -----------------------------------------------------------------------
-    # 2. Загружаем GeoJSON через GeoPandas
-    # -----------------------------------------------------------------------
+        raise FileNotFoundError(f"Файл кадастровых данных не найден: {input_path}")
 
     try:
         gdf = gpd.read_file(input_path)
     except Exception as exc:
-        raise ValueError(
-            f"Не удалось прочитать кадастровый файл "
-            f"{input_path}: {exc}"
-        ) from exc
+        raise ValueError(f"Не удалось прочитать {input_path}: {exc}") from exc
 
     if gdf.empty:
-        raise ValueError(
-            f"Файл {input_path} не содержит объектов."
-        )
-
+        raise ValueError("Кадастровый файл не содержит объектов.")
     if "geometry" not in gdf.columns:
-        raise ValueError(
-            "В кадастровом файле отсутствует поле geometry."
-        )
-
-    # -----------------------------------------------------------------------
-    # 3. Определяем систему координат
-    # -----------------------------------------------------------------------
-
+        raise ValueError("В кадастровом файле отсутствует geometry.")
     if gdf.crs is None:
         raise ValueError(
-            "У исходных кадастровых данных не указана система координат. "
-            "Автоматически определить CRS безопасно невозможно."
+            "У исходных кадастровых данных не указана CRS; "
+            "автоматическое определение небезопасно."
         )
 
-    # Автоматически приводим координаты к WGS 84 / EPSG:4326.
-    if gdf.crs.to_epsg() != 4326:
-        try:
-            gdf = gdf.to_crs(TARGET_CRS)
-        except Exception as exc:
-            raise ValueError(
-                f"Не удалось преобразовать CRS "
-                f"{gdf.crs} -> {TARGET_CRS}: {exc}"
-            ) from exc
-
-    # -----------------------------------------------------------------------
-    # 4. Берем участок VOK-104
-    # -----------------------------------------------------------------------
-    #
-    # В большинстве случаев GeoJSON будет содержать один объект.
-    # Если объектов несколько, используем первый и явно сообщаем об этом.
-    # При необходимости здесь можно добавить фильтрацию по кадастровому
-    # номеру.
-
-    row = gdf.iloc[0]
-
-    if len(gdf) > 1:
-        print(
-            f"Предупреждение: файл содержит {len(gdf)} объектов. "
-            "Для VOK-104 используется первый объект."
-        )
-
-    # -----------------------------------------------------------------------
-    # 5. Извлекаем кадастровый номер
-    # -----------------------------------------------------------------------
+    gdf = gdf.to_crs(TARGET_CRS)
+    row = select_feature(gdf)
 
     cadastral_number = find_attribute(
         row,
         (
-            "cadastral_number",
-            "cadastralNumber",
-            "cad_num",
-            "cadnum",
-            "cadastral_id",
-            "cadastralId",
-            "кадастровый_номер",
-            "кадастровый номер",
+            "cadastral_number", "cadastralNumber", "cad_num", "cadnum",
+            "cadastral_id", "cadastralId", "кадастровый_номер", "кадастровый номер",
         ),
     )
-
     if cadastral_number is None:
-        raise ValueError(
-            "Не найден кадастровый номер участка. "
-            "Ожидался атрибут cadastral_number."
-        )
-
+        raise ValueError("Не найден кадастровый номер участка.")
     cadastral_number = str(cadastral_number).strip()
-
     if not cadastral_number:
-        raise ValueError(
-            "Кадастровый номер участка пуст."
-        )
+        raise ValueError("Кадастровый номер пуст.")
 
-    # -----------------------------------------------------------------------
-    # 6. Извлекаем площадь
-    # -----------------------------------------------------------------------
-
-    area = find_attribute(
-        row,
-        (
-            "area_m2",
-            "area",
-            "area_sq_m",
-            "areaSqM",
-            "square",
-            "площадь",
-            "площадь_м2",
-            "площадь_м²",
-        ),
-    )
-
-    if area is None:
-        raise ValueError(
-            "Не найдена площадь участка. "
-            "Ожидался атрибут area_m2 или area."
-        )
-
-    try:
-        area_m2 = float(area)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Некорректное значение площади: {area!r}"
-        ) from exc
-
-    if area_m2 < 0:
-        raise ValueError(
-            f"Площадь участка не может быть отрицательной: {area_m2}"
-        )
-
-    # -----------------------------------------------------------------------
-    # 7. Нормализуем геометрию
-    # -----------------------------------------------------------------------
-
+    area_m2 = parse_area_m2(row)
     geometry = normalize_geometry(row.geometry)
 
-    # -----------------------------------------------------------------------
-    # 8. Формируем единый объект данных проекта
-    # -----------------------------------------------------------------------
+    # Area is calculated in a metric equal-area CRS only for validation.
+    metric_geometry = gpd.GeoSeries([geometry], crs=TARGET_CRS).to_crs(AREA_CRS).iloc[0]
+    geometry_area_m2 = float(metric_geometry.area)
+    if geometry_area_m2 <= 0:
+        raise ValueError("Площадь геометрии должна быть положительной.")
 
-    result = {
+    relative_error = abs(geometry_area_m2 - area_m2) / area_m2 if area_m2 else 0.0
+    if relative_error > AREA_TOLERANCE:
+        raise ValueError(
+            f"Площадь атрибута ({area_m2:.2f} м²) не совпадает с геометрией "
+            f"({geometry_area_m2:.2f} м²): ошибка {relative_error:.1%}."
+        )
+
+    land_category = find_attribute(
+        row, ("land_category", "category", "категория_земель", "категория земель")
+    )
+    permitted_use = find_attribute(
+        row,
+        ("permitted_use", "land_use", "разрешенное_использование",
+         "разрешённое_использование", "вид_разрешенного_использования"),
+    )
+
+    return {
+        "schema_version": "1.0",
         "cadastral_number": cadastral_number,
-        "area_m2": area_m2,
-        "geometry": geometry_to_geojson(geometry),
+        "area_m2": round(area_m2, 3),
+        "geometry_area_m2": round(geometry_area_m2, 3),
+        "area_relative_error": round(relative_error, 6),
+        "land_category": str(land_category).strip() if land_category is not None else None,
+        "permitted_use": str(permitted_use).strip() if permitted_use is not None else None,
+        "geometry": mapping(geometry),
         "crs": TARGET_CRS,
+        "area_validation_crs": AREA_CRS,
     }
 
-    return result
 
+def save_cadastre(data: dict[str, Any], output_path: Path = OUTPUT_PATH) -> None:
+    """Persist the normalized contract as UTF-8 JSON."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def main() -> int:
-    """
-    Точка входа при запуске:
-
-        python cadastre/read_cadastre.py
-    """
-
-    print("Загрузка кадастровых данных VOK-104...")
-    print(f"Файл: {INPUT_PATH}")
-
     try:
-        cadastre = read_cadastre(INPUT_PATH)
-
-    except FileNotFoundError as exc:
-        print(f"Ошибка: {exc}", file=sys.stderr)
+        data = read_cadastre(INPUT_PATH)
+        save_cadastre(data, OUTPUT_PATH)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"[cadastre][ERROR] {exc}", file=sys.stderr)
         return 1
-
-    except ValueError as exc:
-        print(f"Ошибка данных: {exc}", file=sys.stderr)
-        return 1
-
     except Exception as exc:
-        # Защита от неожиданных ошибок библиотек/файловой системы.
-        print(
-            f"Непредвиденная ошибка при обработке кадастровых данных: "
-            f"{exc}",
-            file=sys.stderr,
-        )
+        print(f"[cadastre][ERROR] Непредвиденная ошибка: {exc}", file=sys.stderr)
         return 1
 
-    # -----------------------------------------------------------------------
-    # Вывод ключевых атрибутов
-    # -----------------------------------------------------------------------
-
-    print()
-    print("Кадастровый участок VOK-104")
-    print("-" * 40)
-    print(f"Кадастровый номер: {cadastre['cadastral_number']}")
-    print(f"Площадь, м²:       {cadastre['area_m2']}")
-    print(f"CRS:               {cadastre['crs']}")
-    print(
-        f"Тип геометрии:     {cadastre['geometry']['type']}"
-    )
-    print("-" * 40)
-
-    # Геометрия подготовлена в GeoJSON-виде для передачи
-    # непосредственно в следующий модуль проекта.
-    print("Геометрия подготовлена для модуля сегментации.")
-
+    print("Кадастровые данные VOK-104 подготовлены.")
+    print(f"Кадастровый номер: {data['cadastral_number']}")
+    print(f"Площадь: {data['area_m2']} м²")
+    print(f"CRS обмена: {data['crs']}")
+    print(f"Результат: {OUTPUT_PATH}")
     return 0
 
 
