@@ -38,6 +38,8 @@ python -m pytest -q
 
 Сравнение НСПД, ЕГРН, API-агрегаторов, Esri, Яндекс, Google, Mapbox, Sentinel-2 и Геопортала Роскосмоса с рекомендацией для MVP: [docs/data-sources-comparison.md](docs/data-sources-comparison.md).
 
+Проверка программного доступа к НСПД (итог: открытого канала нет, нужен запасной сценарий): [docs/nspd-spike.md](docs/nspd-spike.md).
+
 ## Переменные окружения
 
 Кадастр:
