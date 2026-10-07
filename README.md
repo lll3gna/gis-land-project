@@ -42,6 +42,8 @@ python -m pytest -q
 
 Сравнение поставщиков контуров участков (агрегаторы, официальные выписки): [docs/cadastre-providers.md](docs/cadastre-providers.md).
 
+Источник спутниковых снимков для пилота: [docs/imagery-sources.md](docs/imagery-sources.md).
+
 ## Переменные окружения
 
 Кадастр:
