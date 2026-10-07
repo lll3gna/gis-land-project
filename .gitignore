@@ -228,3 +228,6 @@ data/samples/*_vok104_cadastre.pgw
 data/samples/*_vok104_cadastre.prj
 data/samples/*_vok104_cadastre.json
 data/samples/*_vok104_cadastre_nodata_mask.png
+
+# NSPD probe raw responses (local only)
+nspd_probe_out/
