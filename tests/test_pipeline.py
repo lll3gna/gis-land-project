@@ -6,6 +6,7 @@ import geopandas as gpd
 import numpy as np
 import pytest
 import rasterio
+from rasterio.transform import rowcol
 from shapely.geometry import box, shape
 
 from cadastre.read_cadastre import read_cadastre
@@ -133,10 +134,10 @@ def test_parcel_lies_inside_processed_imagery():
     data = read_cadastre(SAMPLE_CADASTRE)
     rgb, valid, transform, crs, manifest = process_geotiff(SAMPLE_IMAGERY)
     parcel = gpd.GeoSeries([shape(data["geometry"])], crs=data["crs"]).to_crs(crs).iloc[0]
-    inv = ~transform
-    corners = [inv * (x, y) for x, y in parcel.exterior.coords]
+    xs, ys = zip(*parcel.exterior.coords)
+    rows, cols = rowcol(transform, xs, ys)
     height, width = valid.shape
-    for col, row in corners:
+    for row, col in zip(rows, cols):
         assert 0 <= col < width and 0 <= row < height
-        assert valid[int(row), int(col)]
+        assert valid[row, col]
 
