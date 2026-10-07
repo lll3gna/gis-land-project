@@ -12,6 +12,10 @@ Run:
 
     python tools/zemelya_probe.py            # demo number, free
     python tools/zemelya_probe.py --real     # our 3 real parcels (uses quota)
+    python tools/zemelya_probe.py --only 50:11:0020104:28641 50:11:0050507:130
+
+Requests go through the async endpoint (POST /cn_data/jobs, then
+GET /cn_data/jobs/{request_id}) so slow NSPD responses don't time out.
 
 For every parcel the raw response is saved to zemelya_probe_out/, and if a
 boundary is returned, a GeoJSON in the project contract format is written
@@ -33,6 +37,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 API_URL = "https://service.zemelyabot.ru/cn_data"
+JOBS_URL = "https://service.zemelyabot.ru/cn_data/jobs"   # async: submit, then poll
+JOB_MAX_WAIT_S = 300
+PENDING = {"queued", "pending", "running", "processing", "in_progress", "accepted"}
 OUT = ROOT / "zemelya_probe_out"
 DEMO = ["23:49:0000000:8273"]  # documented demo number, does not use quota
 REAL = [
@@ -92,13 +99,48 @@ def to_contract_geojson(num: str, payload: dict) -> dict | None:
     }
 
 
+def run_job(session: requests.Session, num: str, slug: str):
+    """Submit an async job and poll until it finishes. Returns (last response, json|None)."""
+    resp = session.post(JOBS_URL, json={"cad_num": num}, timeout=60)
+    (OUT / f"{slug}.submit.txt").write_text(resp.text, encoding="utf-8")
+    try:
+        payload = resp.json()
+    except ValueError:
+        return resp, None
+    request_id = find(payload, "request_id")
+    status = str(find(payload, "status") or "").lower()
+    if not request_id or status not in PENDING:
+        return resp, payload          # finished immediately or an error
+    print(f"\n{num}: задача {request_id} поставлена, ждём результат…")
+    deadline = time.monotonic() + JOB_MAX_WAIT_S
+    wait = float(find(payload, "poll_after_sec") or 10)
+    while time.monotonic() < deadline:
+        time.sleep(max(2.0, min(wait, 30.0)))
+        resp = session.get(f"{JOBS_URL}/{request_id}", timeout=60)
+        (OUT / f"{slug}.raw.txt").write_text(resp.text, encoding="utf-8")
+        try:
+            payload = resp.json()
+        except ValueError:
+            return resp, None
+        status = str(find(payload, "status") or "").lower()
+        if status not in PENDING:
+            return resp, payload
+        print(f"  статус: {status}")
+        wait = float(find(payload, "poll_after_sec") or wait)
+    print(f"  задача не завершилась за {JOB_MAX_WAIT_S} с (request_id {request_id})")
+    return resp, None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--real", action="store_true", help="query our 3 real parcels")
+    parser.add_argument("--only", nargs="+", metavar="CAD_NUM",
+                        help="query only these cadastral numbers (uses quota)")
     args = parser.parse_args()
 
     token = load_token()
-    numbers = REAL if args.real else DEMO
+    numbers = args.only or (REAL if args.real else DEMO)
+    save_real = bool(args.only or args.real)
     OUT.mkdir(exist_ok=True)
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {token}"
@@ -109,17 +151,18 @@ def main() -> None:
         slug = num.replace(":", "-")
         started = time.monotonic()
         try:
-            resp = session.post(API_URL, json={"cad_num": num}, timeout=60)
+            resp, payload = run_job(session, num, slug)
         except requests.RequestException as exc:
-            print(f"{num}: ошибка соединения {type(exc).__name__}: {exc}")
+            print(f"\n{num}: ошибка соединения {type(exc).__name__}: {exc}")
             continue
         elapsed = time.monotonic() - started
-        (OUT / f"{slug}.raw.txt").write_text(resp.text, encoding="utf-8")
         print(f"\n{num}: HTTP {resp.status_code}, {elapsed:.1f} с")
-        try:
-            payload = resp.json()
-        except ValueError:
-            print("  ответ не JSON — см. файл", OUT / f"{slug}.raw.txt")
+        if payload is None:
+            print("  ответ не JSON или задача не завершилась — см. файлы в", OUT)
+            continue
+        error = find(payload, "error")
+        if error:
+            print(f"  ошибка API: {error} — {find(payload, 'message')}")
             continue
 
         no_coords = find(payload, "no_coords")
@@ -131,7 +174,7 @@ def main() -> None:
             continue
         geom = geo["features"][0]["geometry"]
         print(f"  контур: {geom['type']}, площадь в ответе: {geo['features'][0]['properties']['area_m2']}")
-        if args.real:
+        if save_real:
             path = ROOT / "data" / "samples" / f"real_{slug}.geojson"
             path.write_text(json.dumps(geo, ensure_ascii=False, indent=2), encoding="utf-8")
             try:
