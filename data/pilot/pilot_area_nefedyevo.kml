@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Пилотный район — Нефедьево</name>
+<Placemark><name>Район съёмки 5×5 км (25 км²)</name><description>Центр 55.8949 N, 37.1409 E; г.о. Красногорск, Московская область</description>
+<Style><LineStyle><color>ff0000ff</color><width>2</width></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>37.10094,55.87245,0 37.18086,55.87245,0 37.18086,55.91735,0 37.10094,55.91735,0 37.10094,55.87245,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>

@@ -1,0 +1,46 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Пилотный район Абрис — д. Нефедьево, г.о. Красногорск",
+        "size": "5 x 5 км (25 км²)",
+        "center": "55.8949 N, 37.1409 E"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              37.10094,
+              55.87245
+            ],
+            [
+              37.18086,
+              55.87245
+            ],
+            [
+              37.18086,
+              55.91735
+            ],
+            [
+              37.10094,
+              55.91735
+            ],
+            [
+              37.10094,
+              55.87245
+            ]
+          ]
+        ]
+      }
+    }
+  ],
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  }
+}
