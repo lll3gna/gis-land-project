@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Демо-фрагмент Абрис — д. Нефедьево",
+        "size": "1,5 x 1,5 км (≈2,25 км²)"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              37.12891,
+              55.88816
+            ],
+            [
+              37.15289,
+              55.88816
+            ],
+            [
+              37.15289,
+              55.90164
+            ],
+            [
+              37.12891,
+              55.90164
+            ],
+            [
+              37.12891,
+              55.88816
+            ]
+          ]
+        ]
+      }
+    }
+  ],
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  }
+}

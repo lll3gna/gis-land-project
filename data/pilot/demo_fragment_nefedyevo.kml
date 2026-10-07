@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Демо-фрагмент — Нефедьево</name>
+<Placemark><name>Фрагмент 1,5×1,5 км (≈2,25 км²)</name><description>Центр 55.8949 N, 37.1409 E; г.о. Красногорск, Московская область</description>
+<Style><LineStyle><color>ff0000ff</color><width>2</width></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>37.12891,55.88816,0 37.15289,55.88816,0 37.15289,55.90164,0 37.12891,55.90164,0 37.12891,55.88816,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>
