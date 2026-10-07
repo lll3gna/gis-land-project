@@ -13,6 +13,7 @@ Run:
     python tools/zemelya_probe.py            # demo number, free
     python tools/zemelya_probe.py --real     # our 3 real parcels (uses quota)
     python tools/zemelya_probe.py --only 50:11:0020104:28641 50:11:0050507:130
+    python tools/zemelya_probe.py --job 50:11:0020102:501 <request_id>   # resume, no new request
 
 Requests go through the async endpoint (POST /cn_data/jobs, then
 GET /cn_data/jobs/{request_id}) so slow NSPD responses don't time out.
@@ -99,25 +100,39 @@ def to_contract_geojson(num: str, payload: dict) -> dict | None:
     }
 
 
-def run_job(session: requests.Session, num: str, slug: str):
-    """Submit an async job and poll until it finishes. Returns (last response, json|None)."""
-    resp = session.post(JOBS_URL, json={"cad_num": num}, timeout=60)
-    (OUT / f"{slug}.submit.txt").write_text(resp.text, encoding="utf-8")
-    try:
-        payload = resp.json()
-    except ValueError:
-        return resp, None
-    request_id = find(payload, "request_id")
-    status = str(find(payload, "status") or "").lower()
-    if not request_id or status not in PENDING:
-        return resp, payload          # finished immediately or an error
-    print(f"\n{num}: задача {request_id} поставлена, ждём результат…")
+def run_job(session: requests.Session, num: str, slug: str, request_id: str | None = None):
+    """Submit an async job (or resume an existing one) and poll until it finishes.
+
+    Returns (last response, json|None).
+    """
+    resp, wait = None, 2.0
+    if request_id:
+        print(f"\n{num}: забираем результат задачи {request_id} (новый запрос не создаётся)")
+    else:
+        resp = session.post(JOBS_URL, json={"cad_num": num}, timeout=60)
+        (OUT / f"{slug}.submit.txt").write_text(resp.text, encoding="utf-8")
+        try:
+            payload = resp.json()
+        except ValueError:
+            return resp, None
+        request_id = find(payload, "request_id")
+        status = str(find(payload, "status") or "").lower()
+        if not request_id or status not in PENDING:
+            return resp, payload          # finished immediately or an error
+        print(f"\n{num}: задача {request_id} поставлена, ждём результат…")
+        wait = float(find(payload, "poll_after_sec") or 10)
     deadline = time.monotonic() + JOB_MAX_WAIT_S
-    wait = float(find(payload, "poll_after_sec") or 10)
     while time.monotonic() < deadline:
         time.sleep(max(2.0, min(wait, 30.0)))
-        resp = session.get(f"{JOBS_URL}/{request_id}", timeout=60)
+        try:
+            resp = session.get(f"{JOBS_URL}/{request_id}", timeout=60)
+        except requests.RequestException as exc:
+            print(f"  сбой соединения при опросе ({type(exc).__name__}), пробуем ещё раз")
+            continue
         (OUT / f"{slug}.raw.txt").write_text(resp.text, encoding="utf-8")
+        if resp.status_code >= 500:   # gateway timeout etc.: the job keeps running
+            print(f"  HTTP {resp.status_code} при опросе, пробуем ещё раз")
+            continue
         try:
             payload = resp.json()
         except ValueError:
@@ -136,11 +151,18 @@ def main() -> None:
     parser.add_argument("--real", action="store_true", help="query our 3 real parcels")
     parser.add_argument("--only", nargs="+", metavar="CAD_NUM",
                         help="query only these cadastral numbers (uses quota)")
+    parser.add_argument("--job", nargs=2, metavar=("CAD_NUM", "REQUEST_ID"),
+                        help="fetch the result of an already submitted job (no new request)")
     args = parser.parse_args()
 
     token = load_token()
-    numbers = args.only or (REAL if args.real else DEMO)
-    save_real = bool(args.only or args.real)
+    jobs = {}
+    if args.job:
+        jobs[args.job[0]] = args.job[1]
+        numbers = [args.job[0]]
+    else:
+        numbers = args.only or (REAL if args.real else DEMO)
+    save_real = bool(args.only or args.real or args.job)
     OUT.mkdir(exist_ok=True)
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {token}"
@@ -151,7 +173,7 @@ def main() -> None:
         slug = num.replace(":", "-")
         started = time.monotonic()
         try:
-            resp, payload = run_job(session, num, slug)
+            resp, payload = run_job(session, num, slug, jobs.get(num))
         except requests.RequestException as exc:
             print(f"\n{num}: ошибка соединения {type(exc).__name__}: {exc}")
             continue
@@ -182,6 +204,9 @@ def main() -> None:
                 data = read_cadastre(path)
                 print(f"  read_cadastre: OK, площадь по геометрии {data['geometry_area_m2']} м², "
                       f"расхождение {data['area_relative_error']:.2%}")
+            except ModuleNotFoundError as exc:
+                print(f"  контур сохранён в {path.name}; проверка read_cadastre пропущена — "
+                      f"не установлен модуль {exc.name} (python3 -m pip install -r requirements.txt)")
             except Exception as exc:  # report, don't hide
                 print(f"  read_cadastre: ОШИБКА {exc}")
 
